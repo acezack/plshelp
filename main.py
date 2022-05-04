@@ -17,6 +17,7 @@ label_ids = []
 x_train, y_labels = 0, 0
 recognizer = 0
 
+print(cv2.__file__)
 
 face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_alt2.xml")
 
@@ -80,9 +81,10 @@ def generate(cam_in):
 
     print("Name of subject? ")
     name = input()
-
-    if not os.path.isdir('./images/' + name):
-        os.mkdir('./images/' + name)
+    if not os.path.isdir('./images'):
+        os.mkdir("./images")
+    if not os.path.isdir("./images/" + name):
+        os.mkdir("./images/" + name)
     else:
         print("Subject name already exists. Enter 'a' to add new images of subject, or 'q' to return.")
         cont = False
@@ -181,11 +183,12 @@ def train():
                 #print(len(gray))
                 faces = face_cascade.detectMultiScale(gray, minNeighbors=5)
 
-                cv2.PCA
+                # cv2.PCA
 
+                #if faces == []:
+                #    print("Bad training data.")
                 # Detect faces in the image
                 for (x, y, w, h) in faces:
-                    print(w,h)
                     roi = image_array[y:y + h, x:x + w]
                     x_train.append(roi)
                     y_labels.append(id_)
