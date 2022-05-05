@@ -4,7 +4,9 @@ Additional libraries needed to run:
     pip install opencv-contrib-python
     pip install opencv-python
 """
+import math
 import shutil
+import threading
 from time import sleep
 import cv2
 import os
@@ -133,16 +135,19 @@ def generate():
     print("Initialising camera, this might take a while, please hold.")
     global cam_inp
     cap = cv2.VideoCapture(cam_inp)
+    print("Camera initialised.")
     retval, image = cap.read()
     global gray
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-
-    print("Capturing image in: 3", end="")
-    sleep(1)
-    print(", 2", end="")
-    sleep(1)
-    print(", 1")
-    sleep(1)
+    cv2.imshow('frame', image)
+    """
+        print("Beginning capture in: 3", end="")
+        sleep(1)
+        print("\rBeginning capture in: 2", end="")
+        sleep(1)
+        print("\rBeginning capture in: 1", end="")
+        sleep(1)
+    """
     for i in range(number):
         retval, image = cap.read()
         fileindex = i
@@ -152,14 +157,40 @@ def generate():
             fileindex += 1
             file = "./images/" + name + "/" + name + "_" + str(fileindex) + ".png"
             # print(file, os.path.isfile(file))
-        cv2.imwrite(file, image)
-        cv2.imshow('frame', image)
+        # cv2.imshow('frame', image)
         # Press q to quit/turn off camera
         if cv2.waitKey(20) & 0xFF == ord('q'):
             break
         if number > 1:
-            sleep(delay)
-        print("\rImage {} of {} taken.".format(i + 1, number), end="")
+            if delay >= 2:
+                for j in range(int(delay)*24, 0, -1):
+                    font = cv2.FONT_HERSHEY_SIMPLEX
+                    countdown = str(math.ceil(j/24))
+                    color = (255, 255, 255)
+                    stroke = 10
+                    retval, image = cap.read()
+                    w = len(image[0])
+                    h = len(image)
+                    if j != 1:
+                        cv2.putText(image, countdown, (int(w/2)-40, int(h/2)+50), font, 5, color, stroke, cv2.LINE_8)
+                    else:
+                        cv2.rectangle(image, (int(w/2/2), int(h/2/2)), (int(w/2+w/2/2), int(h/2+h/2/2)), color, 10000)
+                    cv2.imshow('frame', image)
+
+                    if cv2.waitKey(20) & 0xFF == ord('q'):
+                        break
+                    sleep(0.017)
+            else:
+                retval, image = cap.read()
+                cv2.imshow('frame', image)
+
+                if cv2.waitKey(20) & 0xFF == ord('q'):
+                    break
+                sleep(delay)
+        # cv2.rectangle(image, (0, 0), (len(image), len(image[0])), color, 10000)
+        retval, image = cap.read()
+        cv2.imwrite(file, image)
+        print("\rImage {} of {} taken. Filename: '{}'.".format(i + 1, number, file), end="")
     print("\nData generated.")
 
     cap.release()
@@ -210,6 +241,7 @@ def delete():
     if op == 'a':
         shutil.rmtree("./images")
         print("All data deleted.")
+        os.mkdir("./images")
     elif op == 'd':
         print("Type subject's name to delete all data of that subject, or 'q' to quit.")
         print_subjects()
@@ -350,12 +382,11 @@ def recognise():
             accuracy[name].append(conf)
             if conf >= 45:
                 # Draw labels on the Haar Cascade rectangle
-                font = cv2.FONT_HERSHEY_SIMPLEX
+                font = cv2.FONT_HERSHEY_COMPLEX
                 name = label[id_]
                 color = (0, 0, 255)
                 stroke = 2
-                cv2.putText(frame, name, (x, y), font, 1, color, stroke, cv2.LINE_8)
-
+                cv2.putText(frame, name, (x, y-5), font, 0.8, color, stroke, cv2.LINE_8)
             # Draw a rectangle around detected faces
             color = (255, 0, 0)  # BGR (opencv default)
             stroke = 4  # line thickness
