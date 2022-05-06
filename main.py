@@ -4,9 +4,10 @@ Additional libraries needed to run:
     pip install opencv-contrib-python
     pip install opencv-python
 """
+import datetime
+import dlib
 import math
 import shutil
-import threading
 from time import sleep
 import cv2
 import os
@@ -14,6 +15,13 @@ import pickle
 import numpy as np
 from PIL import Image
 import shutup
+import imutils
+from imutils import face_utils
+
+detector = dlib.get_frontal_face_detector()
+predictor = dlib.shape_predictor('shape_predictor_68_face_landmarks.dat')
+fa = face_utils.FaceAligner(predictor, desiredFaceWidth=256)
+
 shutup.please()
 
 cam_inp = ""
@@ -21,6 +29,7 @@ gray = 0
 label_ids = []
 x_train, y_labels = 0, 0
 recognizer = 0
+algo_choice = ""
 
 print(cv2.__file__)
 
@@ -30,15 +39,16 @@ face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_fronta
 # Since we are testing different algorithms
 def algorithm():
     global recognizer
+    global algo_choice
     print("Choose algorithm: 'f' for Fisherface, 'e' for Eigenface, or 'l' for LBPH:")
-    type = ""
-    while type != 'f' and type != 'e' and type != 'l':
-        type = input()
-        if type == 'f':
-            recognizer = cv2.face.FisherFaceRecognizer_create()
-        elif type == 'e':
+    algo_choice = ""
+    while algo_choice != 'f' and algo_choice != 'e' and algo_choice != 'l':
+        algo_choice = input()
+        if algo_choice == 'f':
+            recognizer = cv2.face.FisherFaceRecognizer_create(num_components=-1)
+        elif algo_choice == 'e':
             recognizer = cv2.face.EigenFaceRecognizer_create()
-        elif type == 'l':
+        elif algo_choice == 'l':
             recognizer = cv2.face.LBPHFaceRecognizer_create()
         else:
             print("Unknown operation, please enter 'f' for Fisherface, 'e' for Eigenface, or 'l' for LBPH:")
@@ -55,11 +65,33 @@ def cam():
             print("Only enter a singular number. E.g. '0', '1', or '22'.")
 
 
+def init_cam():
+    print("Initialising camera, this might take a while, please hold...")
+    global cam_inp
+    # start = datetime.datetime.now().time().now()
+    # sleep(0.5)
+    # print(start.microsecond, datetime.datetime.now().time().microsecond, datetime.timedelta(start.microsecond, datetime.datetime.now().microsecond).microseconds/1000000, (datetime.datetime.now().time().microsecond - start.microsecond)/1000000)
+    cap = cv2.VideoCapture(cam_inp)
+    # print("Camera initialised. It took {:.1f} seconds.".format(datetime.timedelta.total_seconds(datetime.datetime.now().time()-start)))
+    return cap
+
+
+def detect_faces(image_in):
+    image_in = imutils.resize(image_in, width=800)
+    gray_in = cv2.cvtColor(image_in, cv2.COLOR_BGR2GRAY)
+    rects_in = detector(gray_in, 2)
+    results = []
+    # print(rects_in)
+    for rect in rects_in:
+        results.append(cv2.cvtColor(fa.align(image_in, gray_in, rect), cv2.COLOR_BGR2GRAY))
+    return results
+
+
 def face_detect():
     print("This will show detected faces.")
     print("Press 'q' while the window is focused to exit.")
-    global cam_inp
-    cap = cv2.VideoCapture(cam_inp)
+
+    cap = init_cam()
 
     while True:
         # Capture frame-by-frame
@@ -93,10 +125,7 @@ def face_detect():
     cv2.destroyAllWindows()
 
 
-def generate():
-    print("This will generate training data.")
-    print_subjects()
-
+def generate_cli():
     print("Name of subject? Can not be 'q'. Enter existing subject name to add new data to that subject.")
     name = input()
     while name == "q":
@@ -105,6 +134,7 @@ def generate():
         name = input()
     if not os.path.isdir("./images/" + name):
         os.mkdir("./images/" + name)
+        os.mkdir("./processed/" + name)
     else:
         print("Subject name already exists. Enter 'a' to add new images of subject, or 'q' to return.")
         cont = False
@@ -131,55 +161,52 @@ def generate():
             delay = float(input())
         except ValueError:
             print("Only enter a singular number. E.g. '0.2', '1.5', or '5'.")
+    return name, number, delay
 
-    print("Initialising camera, this might take a while, please hold.")
-    global cam_inp
-    cap = cv2.VideoCapture(cam_inp)
-    print("Camera initialised.")
-    retval, image = cap.read()
-    global gray
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+def generate_display_countdown(j_in, cap_in):
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    countdown = str(math.ceil(j_in / 24))
+    color = (255, 255, 255)
+    stroke = 10
+    retval, image = cap_in.read()
+    w = len(image[0])
+    h = len(image)
+    if j_in != 1:
+        cv2.putText(image, countdown, (int(w / 2) - 40, int(h / 2) + 50), font, 5, color, stroke,
+                    cv2.LINE_8)
+    else:
+        cv2.rectangle(image, (int(w / 2 / 2), int(h / 2 / 2)),
+                      (int(w / 2 + w / 2 / 2), int(h / 2 + h / 2 / 2)), color, 10000)
     cv2.imshow('frame', image)
-    """
-        print("Beginning capture in: 3", end="")
-        sleep(1)
-        print("\rBeginning capture in: 2", end="")
-        sleep(1)
-        print("\rBeginning capture in: 1", end="")
-        sleep(1)
-    """
-    for i in range(number):
-        retval, image = cap.read()
+    sleep(0.017)
+
+
+def generate():
+    print("This will generate training data.")
+    print_subjects()
+
+    name, number_of_images, delay = generate_cli()
+
+    cap = init_cam()
+    retval, image = cap.read()
+    cv2.imshow('frame', image)
+    for i in range(number_of_images):
         fileindex = i
         file = "./images/" + name + "/" + name + "_" + str(fileindex) + ".png"
 
         while os.path.isfile(file):
             fileindex += 1
             file = "./images/" + name + "/" + name + "_" + str(fileindex) + ".png"
-            # print(file, os.path.isfile(file))
-        # cv2.imshow('frame', image)
         # Press q to quit/turn off camera
         if cv2.waitKey(20) & 0xFF == ord('q'):
             break
-        if number > 1:
+        if number_of_images > 1:
             if delay >= 2:
-                for j in range(int(delay)*24, 0, -1):
-                    font = cv2.FONT_HERSHEY_SIMPLEX
-                    countdown = str(math.ceil(j/24))
-                    color = (255, 255, 255)
-                    stroke = 10
-                    retval, image = cap.read()
-                    w = len(image[0])
-                    h = len(image)
-                    if j != 1:
-                        cv2.putText(image, countdown, (int(w/2)-40, int(h/2)+50), font, 5, color, stroke, cv2.LINE_8)
-                    else:
-                        cv2.rectangle(image, (int(w/2/2), int(h/2/2)), (int(w/2+w/2/2), int(h/2+h/2/2)), color, 10000)
-                    cv2.imshow('frame', image)
-
+                for j in range(int(delay) * 24, 0, -1):
+                    generate_display_countdown(j, cap)
                     if cv2.waitKey(20) & 0xFF == ord('q'):
                         break
-                    sleep(0.017)
             else:
                 retval, image = cap.read()
                 cv2.imshow('frame', image)
@@ -187,10 +214,9 @@ def generate():
                 if cv2.waitKey(20) & 0xFF == ord('q'):
                     break
                 sleep(delay)
-        # cv2.rectangle(image, (0, 0), (len(image), len(image[0])), color, 10000)
         retval, image = cap.read()
         cv2.imwrite(file, image)
-        print("\rImage {} of {} taken. Filename: '{}'.".format(i + 1, number, file), end="")
+        print("\rImage {} of {} taken.".format(i + 1, number_of_images), end="")
     print("\nData generated.")
 
     cap.release()
@@ -246,7 +272,7 @@ def delete():
         print("Type subject's name to delete all data of that subject, or 'q' to quit.")
         print_subjects()
         deleted = False
-        while not done:
+        while not deleted:
             sub = input()
             if sub == "q":
                 print("Exiting...")
@@ -256,6 +282,34 @@ def delete():
                     shutil.rmtree("./images/" + sub)
                     print("All data for subject '" + sub + "' deleted.")
                     deleted = True
+
+
+def training_complete(x_train_in, y_labels_in, bad_input_in):
+    if y_labels_in != [] and x_train_in != []:
+        print("Training complete.\n")
+        if len(bad_input_in) == 1:
+            print("No face(s) detected in image: " + bad_input_in[0] + ". Disregarding input.")
+        elif len(bad_input_in) != 0:
+            print("No face(s) detected in images: ")
+            result = ""
+            for bad in bad_input_in:
+                print(bad)
+            print("Disregarding input.")
+
+    else:
+        print("\nshit's fucked, ABORT, ABORT\n")
+
+    recognizer.train(x_train_in, np.array(y_labels_in))
+    global algo_choice
+    if algo_choice == "f":
+        recognizer.save("f_model.yml")
+    elif algo_choice == "e":
+        recognizer.save("e_model.yml")
+    elif algo_choice == "l":
+        recognizer.save("l_model.yml")
+    # Save data label to a pickle file
+    with open('labels.pickle', 'wb') as f:
+        pickle.dump(label_ids, f)
 
 
 def train():
@@ -268,20 +322,10 @@ def train():
 
     # Initialize training set and labels
     global x_train, y_labels, label_ids
-
-    x_train = []
-    y_labels = []
-
-    # Create a dictionary to convert labels into numeric
-    current_id = 0
-    label_ids = {}
-
-    # ret, frame = cap.read()
-    global gray
-    # gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    # print(gray)
+    x_train, y_labels, label_ids, current_id, bad_input = [], [], {}, 0, []
 
     print_subjects()
+
     for root, dirs, files in os.walk(image_dir):
 
         index = 0
@@ -298,52 +342,38 @@ def train():
                     current_id += 1
                 id_ = label_ids[label]
 
-                pil_image = Image.open(path).convert('L')
-                # Resize image (if necessary)
-                size = (550, 550)
-
-                final_image = pil_image.resize(size, Image.ANTIALIAS)
-
-
-                image_array = np.array(final_image, 'uint8')  # change pil_image to final_image if you resize the image
-
-                gray = cv2.cvtColor(cv2.resize(cv2.imread(path), size), cv2.COLOR_BGR2GRAY)
-                # print(len(gray))
-                faces = face_cascade.detectMultiScale(gray, minNeighbors=5)
-
-                # cv2.PCA
-
-                # if faces == []:
-                #    print("Bad training data.")
-                # Detect faces in the image
-                for (x, y, w, h) in faces:
-                    roi = image_array[y:y + h, x:x + w]
-                    x_train.append(roi)
+                image = cv2.imread(path)
+                grays = detect_faces(image)
+                for cur_gray in grays:
+                    cv2.imwrite("./processed/" + subject + "/" + file, cur_gray)
+                    x_train.append(cur_gray)
                     y_labels.append(id_)
         print()
-    if y_labels != [] and x_train != []:
-        print("Training complete.\n")
-    else:
-        print("\nshit's fucked, ABORT, ABORT\n")
 
-    recognizer.train(x_train, np.array(y_labels))
-    recognizer.save("trainer.yml")
-    # Save data label to a pickle file
-
-    with open('labels.pickle', 'wb') as f:
-        pickle.dump(label_ids, f)
+    training_complete(x_train, y_labels, bad_input)
 
 
-def recognise():
-    if not os.path.isfile('trainer.yml'):
-        if is_subjects_populated():
-            print("No trained model found, but generated data exists. Enter 't' in the main menu to train a model.")
-        else:
-            print("No trained model found, and no training data exists. Enter 'g' in the main menu to generate data.")
-        return
-    print("This will recognise previously learned subjects.")
-    recognizer.read('trainer.yml')
+def recognise_init():
+    # Initialise and read the previously trained model.
+    global recognizer, algo_choice
+    print(algo_choice)
+    if algo_choice == "f":
+        if not os.path.isfile("f_model.yml"):
+            print("No model for FisherFace, run 't' in the main menu.")
+            return False
+        recognizer.read("f_model.yml")
+    elif algo_choice == "e":
+        if not os.path.isfile("e_model.yml"):
+            print("No model for Eigenface, run 't' in the main menu.")
+            return False
+        recognizer.read("e_model.yml")
+    elif algo_choice == "l":
+        if not os.path.isfile("l_model.yml"):
+            print("No model for LBPH, run 't' in the main menu.")
+            return False
+        recognizer.read("l_model.yml")
 
+    # Initialise and read the names of the subjects previously trained on.
     label = {}
     with(open('labels.pickle', 'rb')) as openfile:
         try:
@@ -352,56 +382,88 @@ def recognise():
                 label.update({int(v): k})
         except EOFError:
             ()
+    return label
+
+
+def recognise():
+    print("This will recognise previously learned subjects.")
 
     accuracy = {}
-    # Initialize web cam
-    global cam_inp
-    cap = cv2.VideoCapture(cam_inp)
+    """
+    Dict to save the conf of each subject detected per frame.
+    Will be structured like this:
+    {
+        'subject1': [
+            75,
+            73,
+            73,
+            76,
+            67,
+            ...
+        ],
+        'subject2': [
+            99,
+            75,
+            87,
+            67,
+            ...
+        ],
+        ...
+    }
+    """
+    label = recognise_init()
+    if not label:
+        return
+    cap = init_cam()
 
     # cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
     # cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
-    print("Below the average conf will be displayed in this format: ('subject' : 'average conf' : 'current conf')")
+    print("Below the average conf will be displayed in this format: ('subject' : 'average conf' : 'latest conf')")
+
     while True:
         # Capture frame-by-frame
-        ret, frame = cap.read()
+        ret, image = cap.read()
         global gray
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        faces = face_cascade.detectMultiScale(gray, minNeighbors=5)
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
-        for (x, y, w, h) in faces:
-            roi_gray = gray[y:y + h, x:x + w]
-            roi_color = frame[y:y + h, x:x + w]
-            id_, conf = recognizer.predict(roi_gray)
+        rects = detect_faces(image)
+        for rect in rects:
+            faces = face_cascade.detectMultiScale(rect, minNeighbors=5)
+            print(rects)
+            print(faces)
+            for (x, y, w, h) in faces:
+                roi_gray = rect[y:y + h, x:x + w]
+                id_, conf = recognizer.predict(roi_gray)
 
-            name = label[id_]
-            try:
-                accuracy[name]
-            except KeyError:
-                accuracy[name] = [conf]
-
-            accuracy[name].append(conf)
-            if conf >= 45:
-                # Draw labels on the Haar Cascade rectangle
-                font = cv2.FONT_HERSHEY_COMPLEX
                 name = label[id_]
-                color = (0, 0, 255)
-                stroke = 2
-                cv2.putText(frame, name, (x, y-5), font, 0.8, color, stroke, cv2.LINE_8)
-            # Draw a rectangle around detected faces
-            color = (255, 0, 0)  # BGR (opencv default)
-            stroke = 4  # line thickness
-            end_cord_x = x + w
-            end_cord_y = y + h
-            cv2.rectangle(frame, (x, y), (end_cord_x, end_cord_y), color, stroke)
+                try:
+                    accuracy[name]
+                except KeyError:
+                    accuracy[name] = [conf]
 
-            out = ""
-            for subject in accuracy:
-                out = out + "({} : {:.0f} : {:.0f}), ".format(subject,
-                                                              np.mean(accuracy[subject]),
-                                                              accuracy[subject][-1])
-            print("\r" + out[0:len(out) - 2], end="")
+                accuracy[name].append(conf)
+                if conf >= 45:
+                    # Draw labels on the Haar Cascade rectangle
+                    font = cv2.FONT_HERSHEY_COMPLEX
+                    name = label[id_]
+                    color = (0, 0, 255)
+                    stroke = 2
+                    cv2.putText(image, name, (x, y - 5), font, 0.8, color, stroke, cv2.LINE_8)
+                # Draw a rectangle around detected faces
+                color = (255, 0, 0)  # BGR (opencv default)
+                stroke = 4  # line thickness
+                end_cord_x = x + w
+                end_cord_y = y + h
+                cv2.rectangle(image, (x, y), (end_cord_x, end_cord_y), color, stroke)
 
-        cv2.imshow('frame', frame)
+                out = ""
+                for subject in accuracy:
+                    out = out + "({} : {:.0f} : {:.0f}), ".format(subject,
+                                                                  np.mean(accuracy[subject]),
+                                                                  accuracy[subject][-1])
+                print("\r" + out[0:len(out) - 2], end="")
+
+        cv2.imshow('frame', image)
 
         # Press q to quit/turn off camera
         if cv2.waitKey(20) & 0xFF == ord('q'):
@@ -436,6 +498,8 @@ if __name__ == "__main__":
 
     if not os.path.isdir('./images'):
         os.mkdir("./images")
+    if not os.path.isdir('./processed'):
+        os.mkdir("./processed")
     done = False
     while not done:
         print("\nEnter 'g', to generate, "
