@@ -3,7 +3,17 @@ Additional libraries needed to run:
     pip install pillow
     pip install opencv-contrib-python
     pip install opencv-python
+    pip install cmake
+    pip install dlib
+    pip install imutils
+
+You will also need to change line 68 in 'imutils/face_utils/facealigner.py' from
+    M = cv2.getRotationMatrix2D(eyesCenter, angle, scale)
+to
+    M = cv2.getRotationMatrix2D((int(eyesCenter[0]), int(eyesCenter[1])), angle, scale)
 """
+
+import pandas as pd
 import datetime
 import dlib
 import math
@@ -68,23 +78,27 @@ def cam():
 def init_cam():
     print("Initialising camera, this might take a while, please hold...")
     global cam_inp
-    # start = datetime.datetime.now().time().now()
-    # sleep(0.5)
-    # print(start.microsecond, datetime.datetime.now().time().microsecond, datetime.timedelta(start.microsecond, datetime.datetime.now().microsecond).microseconds/1000000, (datetime.datetime.now().time().microsecond - start.microsecond)/1000000)
+
+    start = datetime.datetime.now()
     cap = cv2.VideoCapture(cam_inp)
-    # print("Camera initialised. It took {:.1f} seconds.".format(datetime.timedelta.total_seconds(datetime.datetime.now().time()-start)))
+    end = datetime.datetime.now()
+    print("Camera initialised. It took {:.2f} seconds.".format((end - start).total_seconds()))
+
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 800)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 600)
     return cap
 
 
 def detect_faces(image_in):
-    image_in = imutils.resize(image_in, width=800)
+    # image_in = imutils.resize(image_in, width=800)
     gray_in = cv2.cvtColor(image_in, cv2.COLOR_BGR2GRAY)
     rects_in = detector(gray_in, 2)
+
     results = []
     # print(rects_in)
     for rect in rects_in:
         results.append(cv2.cvtColor(fa.align(image_in, gray_in, rect), cv2.COLOR_BGR2GRAY))
-    return results
+    return results, rects_in
 
 
 def face_detect():
@@ -95,26 +109,25 @@ def face_detect():
 
     while True:
         # Capture frame-by-frame
-        ret, frame = cap.read()
-        global gray
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        faces = face_cascade.detectMultiScale(gray, minNeighbors=5)  # scaleFactor
+        ret, image = cap.read()
 
-        # x,y = start of the faces frame(top left)
-        # w,h = width and height of frame
-        for (x, y, w, h) in faces:
-            roi_gray = gray[y:y + h, x:x + w]
-            roi_color = frame[y:y + h, x:x + w]
+        results, rects = detect_faces(image)
 
+        inside_index = 0
+        for i in range(len(results)):
+            coord = rects[inside_index]
+            x = coord.left()
+            y = coord.top()
+            x2 = coord.right()
+            y2 = coord.bottom()
             # Draw a rectangle around detected faces
             color = (255, 0, 0)  # BGR (opencv default)
-            stroke = 2  # line thickness
-            end_cord_x = x + w
-            end_cord_y = y + h
-            cv2.rectangle(frame, (x, y), (end_cord_x, end_cord_y), color, stroke)
-
-        # Display the resulting frame
-        cv2.imshow('frame', frame)
+            stroke = 4  # line thickness
+            end_cord_x = x2
+            end_cord_y = y2
+            cv2.rectangle(image, (x, y), (end_cord_x, end_cord_y), color, stroke)
+            inside_index += 1
+        cv2.imshow('frame', image)
 
         # Press q to quit/turn off camera
         if cv2.waitKey(20) & 0xFF == ord('q'):
@@ -286,7 +299,7 @@ def delete():
 
 def training_complete(x_train_in, y_labels_in, bad_input_in):
     if y_labels_in != [] and x_train_in != []:
-        print("Training complete.\n")
+        print("Training complete.")
         if len(bad_input_in) == 1:
             print("No face(s) detected in image: " + bad_input_in[0] + ". Disregarding input.")
         elif len(bad_input_in) != 0:
@@ -295,12 +308,15 @@ def training_complete(x_train_in, y_labels_in, bad_input_in):
             for bad in bad_input_in:
                 print(bad)
             print("Disregarding input.")
-
     else:
         print("\nshit's fucked, ABORT, ABORT\n")
 
-    recognizer.train(x_train_in, np.array(y_labels_in))
     global algo_choice
+    if algo_choice == 'f' and len(get_subjects()) == 1:
+        print("Need more than one subject to train FisherFace model.")
+        return
+    recognizer.train(x_train_in, np.array(y_labels_in))
+
     if algo_choice == "f":
         recognizer.save("f_model.yml")
     elif algo_choice == "e":
@@ -330,6 +346,8 @@ def train():
 
         index = 0
         subject = os.path.basename(root)
+        if not os.path.isdir("./processed/" + subject) and subject != "images":
+            os.mkdir("./processed/" + subject)
         for file in files:
             index = index + 1
             print("\rTraining on subject '{}' is {:.0%} complete.".format(subject, index / len(files)), end="")
@@ -343,7 +361,7 @@ def train():
                 id_ = label_ids[label]
 
                 image = cv2.imread(path)
-                grays = detect_faces(image)
+                grays, _ = detect_faces(image)
                 for cur_gray in grays:
                     cv2.imwrite("./processed/" + subject + "/" + file, cur_gray)
                     x_train.append(cur_gray)
@@ -416,63 +434,85 @@ def recognise():
         return
     cap = init_cam()
 
-    # cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
-    # cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
     print("Below the average conf will be displayed in this format: ('subject' : 'average conf' : 'latest conf')")
-
+    delay = []
+    frame = 0
+    test = []
     while True:
+        start = datetime.datetime.now()
+
         # Capture frame-by-frame
         ret, image = cap.read()
-        global gray
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
-        rects = detect_faces(image)
-        for rect in rects:
-            faces = face_cascade.detectMultiScale(rect, minNeighbors=5)
-            print(rects)
-            print(faces)
-            for (x, y, w, h) in faces:
-                roi_gray = rect[y:y + h, x:x + w]
-                id_, conf = recognizer.predict(roi_gray)
+        results, rects = detect_faces(image)
 
-                name = label[id_]
-                try:
-                    accuracy[name]
-                except KeyError:
-                    accuracy[name] = [conf]
+        per_frame = []
+        inside_index = 0
+        for rect in results:
 
-                accuracy[name].append(conf)
-                if conf >= 45:
-                    # Draw labels on the Haar Cascade rectangle
-                    font = cv2.FONT_HERSHEY_COMPLEX
-                    name = label[id_]
-                    color = (0, 0, 255)
-                    stroke = 2
-                    cv2.putText(image, name, (x, y - 5), font, 0.8, color, stroke, cv2.LINE_8)
-                # Draw a rectangle around detected faces
-                color = (255, 0, 0)  # BGR (opencv default)
-                stroke = 4  # line thickness
-                end_cord_x = x + w
-                end_cord_y = y + h
-                cv2.rectangle(image, (x, y), (end_cord_x, end_cord_y), color, stroke)
+            id_, conf = recognizer.predict(rect)
+            name = label[id_]
 
-                out = ""
-                for subject in accuracy:
-                    out = out + "({} : {:.0f} : {:.0f}), ".format(subject,
-                                                                  np.mean(accuracy[subject]),
-                                                                  accuracy[subject][-1])
-                print("\r" + out[0:len(out) - 2], end="")
+            per_face_in_frame = [name, conf]
+            try:
+                accuracy[name]
+            except KeyError:
+                accuracy[name] = [conf]
 
+            accuracy[name].append(conf)
+
+            per_frame.append(per_face_in_frame)
+
+            out = ""
+            for subject in accuracy:
+                out = out + "({} : {:.0f} : {:.0f}), ".format(subject,
+                                                              np.mean(accuracy[subject]),
+                                                              accuracy[subject][-1])
+            print("\r" + out[0:len(out) - 2] + ". ", end="")
+
+            coord = rects[inside_index]
+            x = coord.left()
+            y = coord.top()
+            x2 = coord.right()
+            y2 = coord.bottom()
+
+            font = cv2.FONT_HERSHEY_COMPLEX
+            name = label[id_]
+            color = (0, 0, 255)
+            stroke = 2
+            cv2.putText(image, name, (x, y - 5), font, 0.8, color, stroke, cv2.LINE_8)
+
+            # Draw a rectangle around detected faces
+            color = (255, 0, 0)  # BGR (opencv default)
+            stroke = 4  # line thickness
+            end_cord_x = x2
+            end_cord_y = y2
+            cv2.rectangle(image, (x, y), (end_cord_x, end_cord_y), color, stroke)
+            inside_index += 1
         cv2.imshow('frame', image)
 
         # Press q to quit/turn off camera
         if cv2.waitKey(20) & 0xFF == ord('q'):
             break
 
+        end = datetime.datetime.now()
+        delay.append((end - start).total_seconds())
+        # temp = [test2, (end - start).total_seconds()]
+        test.append(per_frame)
+        #print("Delay since last frame was {:.2f} seconds.".format((end - start).total_seconds()), end="")
+        frame += 1
+
     # When everything done, release the capture
     cap.release()
     cv2.destroyAllWindows()
-    print()
+
+    #print(test)
+    for index in range(frame):
+        print("frame: {}\ndelay: {:.2f}".format(index,delay[index]))
+        for sub in test[index]:
+            print("\tname: ", sub[0], "\n\t\tconf: ", sub[1])
+
+    print("\nMean delay was {:.2f}".format(np.mean(delay)))
 
 
 def display_help():
