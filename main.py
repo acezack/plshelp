@@ -12,6 +12,7 @@ You will also need to change line 68 in 'imutils/face_utils/facealigner.py' from
 to
     M = cv2.getRotationMatrix2D((int(eyesCenter[0]), int(eyesCenter[1])), angle, scale)
 """
+import io
 
 import pandas as pd
 import datetime
@@ -32,7 +33,7 @@ detector = dlib.get_frontal_face_detector()
 predictor = dlib.shape_predictor('shape_predictor_68_face_landmarks.dat')
 fa = face_utils.FaceAligner(predictor, desiredFaceWidth=256)
 
-shutup.please()
+#shutup.please()
 
 cam_inp = ""
 gray = 0
@@ -40,6 +41,7 @@ label_ids = []
 x_train, y_labels = 0, 0
 recognizer = 0
 algo_choice = ""
+cap = None
 
 print(cv2.__file__)
 
@@ -73,20 +75,16 @@ def cam():
             cam_inp = int(input())
         except ValueError:
             print("Only enter a singular number. E.g. '0', '1', or '22'.")
-
-
-def init_cam():
     print("Initialising camera, this might take a while, please hold...")
-    global cam_inp
 
     start = datetime.datetime.now()
+    global cap
     cap = cv2.VideoCapture(cam_inp)
-    end = datetime.datetime.now()
-    print("Camera initialised. It took {:.2f} seconds.".format((end - start).total_seconds()))
 
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 800)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 600)
-    return cap
+    end = datetime.datetime.now()
+    print("Camera initialised. It took {:.2f} seconds.".format((end - start).total_seconds()))
 
 
 def detect_faces(image_in):
@@ -105,7 +103,7 @@ def face_detect():
     print("This will show detected faces.")
     print("Press 'q' while the window is focused to exit.")
 
-    cap = init_cam()
+    global cap
 
     while True:
         # Capture frame-by-frame
@@ -134,7 +132,6 @@ def face_detect():
             break
 
     # When everything done, release the capture
-    cap.release()
     cv2.destroyAllWindows()
 
 
@@ -177,12 +174,13 @@ def generate_cli():
     return name, number, delay
 
 
-def generate_display_countdown(j_in, cap_in):
+def generate_display_countdown(j_in):
     font = cv2.FONT_HERSHEY_SIMPLEX
     countdown = str(math.ceil(j_in / 24))
     color = (255, 255, 255)
     stroke = 10
-    retval, image = cap_in.read()
+    global cap
+    retval, image = cap.read()
     w = len(image[0])
     h = len(image)
     if j_in != 1:
@@ -201,7 +199,6 @@ def generate():
 
     name, number_of_images, delay = generate_cli()
 
-    cap = init_cam()
     retval, image = cap.read()
     cv2.imshow('frame', image)
     for i in range(number_of_images):
@@ -217,7 +214,7 @@ def generate():
         if number_of_images > 1:
             if delay >= 2:
                 for j in range(int(delay) * 24, 0, -1):
-                    generate_display_countdown(j, cap)
+                    generate_display_countdown(j)
                     if cv2.waitKey(20) & 0xFF == ord('q'):
                         break
             else:
@@ -232,7 +229,6 @@ def generate():
         print("\rImage {} of {} taken.".format(i + 1, number_of_images), end="")
     print("\nData generated.")
 
-    cap.release()
     cv2.destroyAllWindows()
 
 
@@ -279,8 +275,10 @@ def delete():
 
     if op == 'a':
         shutil.rmtree("./images")
+        shutil.rmtree("./processed")
         print("All data deleted.")
         os.mkdir("./images")
+        os.mkdir("./processed")
     elif op == 'd':
         print("Type subject's name to delete all data of that subject, or 'q' to quit.")
         print_subjects()
@@ -293,6 +291,7 @@ def delete():
             for i in range(len(subjects)):
                 if sub == subjects[i]:
                     shutil.rmtree("./images/" + sub)
+                    shutil.rmtree("./processed/" + sub)
                     print("All data for subject '" + sub + "' deleted.")
                     deleted = True
 
@@ -322,7 +321,9 @@ def training_complete(x_train_in, y_labels_in, bad_input_in):
     elif algo_choice == "e":
         recognizer.save("e_model.yml")
     elif algo_choice == "l":
+        print("should save")
         recognizer.save("l_model.yml")
+
     # Save data label to a pickle file
     with open('labels.pickle', 'wb') as f:
         pickle.dump(label_ids, f)
@@ -335,6 +336,23 @@ def train():
     print("This will train the model on the training data.")
     # Define image directory
     image_dir = "./images"
+    shutil.rmtree("./processed")
+    os.mkdir("./processed")
+
+    print("Enter 'a' to train on all images found, 'n' to select n number of images to train on, or 'q' to quit.")
+    inp = input()
+    while inp != 'a' and inp != 'n' and inp != 'q':
+        print("Enter 'a', 'n', or 'q'.")
+        inp = input()
+
+    number = ""
+    if inp == 'n':
+        print("How many training images? ")
+        while isinstance(number, str):
+            try:
+                number = int(input())
+            except ValueError:
+                print("Only enter a singular number. E.g. '0', '1', or '22'.")
 
     # Initialize training set and labels
     global x_train, y_labels, label_ids
@@ -348,9 +366,18 @@ def train():
         subject = os.path.basename(root)
         if not os.path.isdir("./processed/" + subject) and subject != "images":
             os.mkdir("./processed/" + subject)
+
+        if number == "":
+            limit = len(files)
+        elif number != 0 and subject != "images":
+            limit = min(len(files), number)
+
+            print("Will use", limit, "images for subject '" + subject + "'.")
+        else:
+            limit = len(files)
         for file in files:
             index = index + 1
-            print("\rTraining on subject '{}' is {:.0%} complete.".format(subject, index / len(files)), end="")
+            print("\rTraining on subject '{}' is {:.0%} complete.".format(subject, index / limit), end="")
             if file.endswith('png') or file.endswith('jpg') or file.endswith('jpeg'):
                 path = os.path.join(root, file)
                 label = os.path.basename(root)
@@ -366,6 +393,8 @@ def train():
                     cv2.imwrite("./processed/" + subject + "/" + file, cur_gray)
                     x_train.append(cur_gray)
                     y_labels.append(id_)
+            if index == limit:
+                break
         print()
 
     training_complete(x_train, y_labels, bad_input)
@@ -373,8 +402,20 @@ def train():
 
 def recognise_init():
     # Initialise and read the previously trained model.
+    model_list = ["1t_f_model.yml", "2t_f_model.yml", "5t_f_model.yml", "10t_f_model.yml",
+                  "1t_e_model.yml", "2t_e_model.yml", "5t_e_model.yml", "10t_e_model.yml",
+                  "1t_l_model.yml", "2t_l_model.yml", "5t_l_model.yml", "10t_l_model.yml"]
+    print("Available models:\n", model_list)
+    model = ""
+    while model not in model_list:
+        try:
+            model = input()
+        except FileNotFoundError:
+            model = input()
     global recognizer, algo_choice
+    recognizer.read("./models/" + model)
     print(algo_choice)
+    """
     if algo_choice == "f":
         if not os.path.isfile("f_model.yml"):
             print("No model for FisherFace, run 't' in the main menu.")
@@ -390,7 +431,7 @@ def recognise_init():
             print("No model for LBPH, run 't' in the main menu.")
             return False
         recognizer.read("l_model.yml")
-
+    """
     # Initialise and read the names of the subjects previously trained on.
     label = {}
     with(open('labels.pickle', 'rb')) as openfile:
@@ -400,7 +441,7 @@ def recognise_init():
                 label.update({int(v): k})
         except EOFError:
             ()
-    return label
+    return label, model
 
 
 def recognise():
@@ -429,10 +470,9 @@ def recognise():
         ...
     }
     """
-    label = recognise_init()
+    label, model = recognise_init()
     if not label:
         return
-    cap = init_cam()
 
     print("Below the average conf will be displayed in this format: ('subject' : 'average conf' : 'latest conf')")
     delay = []
@@ -452,7 +492,7 @@ def recognise():
 
             id_, conf = recognizer.predict(rect)
             name = label[id_]
-
+            # print(name, conf)
             per_face_in_frame = [name, conf]
             try:
                 accuracy[name]
@@ -463,11 +503,12 @@ def recognise():
 
             per_frame.append(per_face_in_frame)
 
-            out = ""
+            out = "\rFrame: " + str(frame) + "\t"
             for subject in accuracy:
-                out = out + "({} : {:.0f} : {:.0f}), ".format(subject,
-                                                              np.mean(accuracy[subject]),
-                                                              accuracy[subject][-1])
+                out = out + "({} : {:.0f} : {:.0f}), ".format(
+                    subject,
+                    np.mean(accuracy[subject]),
+                    accuracy[subject][-1])
             print("\r" + out[0:len(out) - 2] + ". ", end="")
 
             coord = rects[inside_index]
@@ -499,19 +540,30 @@ def recognise():
         delay.append((end - start).total_seconds())
         # temp = [test2, (end - start).total_seconds()]
         test.append(per_frame)
-        #print("Delay since last frame was {:.2f} seconds.".format((end - start).total_seconds()), end="")
+        # print("Delay since last frame was {:.2f} seconds.".format((end - start).total_seconds()), end="")
         frame += 1
 
     # When everything done, release the capture
-    cap.release()
     cv2.destroyAllWindows()
-
-    #print(test)
+    output = []
+    print(frame)
     for index in range(frame):
-        print("frame: {}\ndelay: {:.2f}".format(index,delay[index]))
-        for sub in test[index]:
-            print("\tname: ", sub[0], "\n\t\tconf: ", sub[1])
-
+        print("frame: {}\ndelay: {:.2f}".format(index, delay[index]))
+        if len(test[index]) == 0:
+            output.append([model, str(index)])
+        else:
+            for sub in test[index]:
+                print("\tname: ", sub[0], "\n\t\tconf: ", sub[1])
+                output.append([model, str(index), sub[0], str(sub[1])])
+    print(output)
+    df = pd.DataFrame(output)
+    print(df)
+    #print(pd.DataFrame(output))
+    #pd.concat([df, pd.DataFrame(output)], ignore_index=True)
+    #df
+    df.to_csv("output.csv", index=False, mode="a", header=False)
+    # df.to_csv(output)
+    # df.to_csv(df, sep=',', columns=["algo", "frame", "name", "conf"])
     print("\nMean delay was {:.2f}".format(np.mean(delay)))
 
 
@@ -575,4 +627,6 @@ if __name__ == "__main__":
             done = True
         else:
             print("Unknown operation.")
+
+    cv2.destroyAllWindows()
     print("Exiting...")
