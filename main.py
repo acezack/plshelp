@@ -317,12 +317,12 @@ def training_complete(x_train_in, y_labels_in, bad_input_in):
     recognizer.train(x_train_in, np.array(y_labels_in))
 
     if algo_choice == "f":
-        recognizer.save("f_model.yml")
+        recognizer.save("f")
     elif algo_choice == "e":
-        recognizer.save("e_model.yml")
+        recognizer.save("e")
     elif algo_choice == "l":
         print("should save")
-        recognizer.save("l_model.yml")
+        recognizer.save("l")
 
     # Save data label to a pickle file
     with open('labels.pickle', 'wb') as f:
@@ -402,9 +402,9 @@ def train():
 
 def recognise_init():
     # Initialise and read the previously trained model.
-    model_list = ["1t_f_model.yml", "2t_f_model.yml", "5t_f_model.yml", "10t_f_model.yml",
-                  "1t_e_model.yml", "2t_e_model.yml", "5t_e_model.yml", "10t_e_model.yml",
-                  "1t_l_model.yml", "2t_l_model.yml", "5t_l_model.yml", "10t_l_model.yml"]
+    model_list = ["1t_f", "2t_f", "5t_f", "10t_f",
+                  "1t_e", "2t_e", "5t_e", "10t_e",
+                  "1t_l", "2t_l", "5t_l", "10t_l"]
     print("Available models:\n", model_list)
     model = ""
     while model not in model_list:
@@ -413,24 +413,24 @@ def recognise_init():
         except FileNotFoundError:
             model = input()
     global recognizer, algo_choice
-    recognizer.read("./models/" + model)
+    recognizer.read("./models/" + model + "_model.yml")
     print(algo_choice)
     """
     if algo_choice == "f":
-        if not os.path.isfile("f_model.yml"):
+        if not os.path.isfile("f"):
             print("No model for FisherFace, run 't' in the main menu.")
             return False
-        recognizer.read("f_model.yml")
+        recognizer.read("f")
     elif algo_choice == "e":
-        if not os.path.isfile("e_model.yml"):
+        if not os.path.isfile("e"):
             print("No model for Eigenface, run 't' in the main menu.")
             return False
-        recognizer.read("e_model.yml")
+        recognizer.read("e")
     elif algo_choice == "l":
-        if not os.path.isfile("l_model.yml"):
+        if not os.path.isfile("l"):
             print("No model for LBPH, run 't' in the main menu.")
             return False
-        recognizer.read("l_model.yml")
+        recognizer.read("l")
     """
     # Initialise and read the names of the subjects previously trained on.
     label = {}
@@ -491,7 +491,12 @@ def recognise():
         for rect in results:
 
             id_, conf = recognizer.predict(rect)
-            name = label[id_]
+            try:
+                name = label[id_]
+            except KeyError:
+                print(id_)
+                continue
+            # name = label[id_]
             # print(name, conf)
             per_face_in_frame = [name, conf]
             try:
@@ -550,11 +555,17 @@ def recognise():
     for index in range(frame):
         print("frame: {}\ndelay: {:.2f}".format(index, delay[index]))
         if len(test[index]) == 0:
-            output.append([model, str(index)])
+            output.append([str(index),
+                           delay[index],
+                           model])
         else:
             for sub in test[index]:
                 print("\tname: ", sub[0], "\n\t\tconf: ", sub[1])
-                output.append([model, str(index), sub[0], str(sub[1])])
+                output.append([str(index),
+                               delay[index],
+                               model,
+                               sub[0],
+                               str(sub[1])])
     print(output)
     df = pd.DataFrame(output)
     print(df)
