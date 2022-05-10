@@ -321,7 +321,6 @@ def training_complete(x_train_in, y_labels_in, bad_input_in):
     elif algo_choice == "e":
         recognizer.save("e")
     elif algo_choice == "l":
-        print("should save")
         recognizer.save("l")
 
     # Save data label to a pickle file
@@ -413,7 +412,14 @@ def recognise_init():
         except FileNotFoundError:
             model = input()
     global recognizer, algo_choice
+    if algo_choice == 'f':
+        recognizer = cv2.face.FisherFaceRecognizer_create(num_components=-1)
+    elif algo_choice == 'e':
+        recognizer = cv2.face.EigenFaceRecognizer_create()
+    elif algo_choice == 'l':
+        recognizer = cv2.face.LBPHFaceRecognizer_create()
     recognizer.read("./models/" + model + "_model.yml")
+
     print(algo_choice)
     """
     if algo_choice == "f":
