@@ -377,7 +377,7 @@ def train():
         for file in files:
             index = index + 1
             print("\rTraining on subject '{}' is {:.0%} complete.".format(subject, index / limit), end="")
-            if file.endswith('png') or file.endswith('jpg') or file.endswith('jpeg'):
+            if file.endswith('png') or file.endswith('jpg') or file.endswith('jpeg') or file.endswith('JPG'):
                 path = os.path.join(root, file)
                 label = os.path.basename(root)
 
@@ -387,6 +387,7 @@ def train():
                 id_ = label_ids[label]
 
                 image = cv2.imread(path)
+                image = imutils.resize(image, width=800)
                 grays, _ = detect_faces(image)
                 for cur_gray in grays:
                     cv2.imwrite("./processed/" + subject + "/" + file, cur_gray)
@@ -401,9 +402,15 @@ def train():
 
 def recognise_init():
     # Initialise and read the previously trained model.
-    model_list = ["1t_f", "2t_f", "5t_f", "10t_f",
-                  "1t_e", "2t_e", "5t_e", "10t_e",
-                  "1t_l", "2t_l", "5t_l", "10t_l"]
+    global recognizer, algo_choice
+    model_list = ["1t", "2t", "5t", "n1t", "n2t", "n5t"]
+    if algo_choice == 'f':
+        recognizer = cv2.face.FisherFaceRecognizer_create(num_components=-1)
+    elif algo_choice == 'e':
+        recognizer = cv2.face.EigenFaceRecognizer_create()
+    elif algo_choice == 'l':
+        recognizer = cv2.face.LBPHFaceRecognizer_create()
+
     print("Available models:\n", model_list)
     model = ""
     while model not in model_list:
@@ -411,14 +418,7 @@ def recognise_init():
             model = input()
         except FileNotFoundError:
             model = input()
-    global recognizer, algo_choice
-    if algo_choice == 'f':
-        recognizer = cv2.face.FisherFaceRecognizer_create(num_components=-1)
-    elif algo_choice == 'e':
-        recognizer = cv2.face.EigenFaceRecognizer_create()
-    elif algo_choice == 'l':
-        recognizer = cv2.face.LBPHFaceRecognizer_create()
-    recognizer.read("./models/" + model + "_model.yml")
+    recognizer.read("./models/" + model + "_" + algo_choice + "_model.yml")
 
     print(algo_choice)
     """
@@ -557,19 +557,20 @@ def recognise():
     # When everything done, release the capture
     cv2.destroyAllWindows()
     output = []
+    global algo_choice
     print(frame)
     for index in range(frame):
         print("frame: {}\ndelay: {:.2f}".format(index, delay[index]))
         if len(test[index]) == 0:
             output.append([str(index),
                            delay[index],
-                           model])
+                           model + "_" + algo_choice])
         else:
             for sub in test[index]:
                 print("\tname: ", sub[0], "\n\t\tconf: ", sub[1])
                 output.append([str(index),
                                delay[index],
-                               model,
+                               model + "_" + algo_choice,
                                sub[0],
                                str(sub[1])])
     print(output)
